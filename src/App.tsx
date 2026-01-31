@@ -1,9 +1,14 @@
+import { useState } from 'react';
 import { useMeetingData } from './hooks/useMeetingData';
 import { StatCard } from './components/StatCard';
-import { Activity, FileText, MousePointer2, Search, Calendar, RefreshCw } from 'lucide-react';
+import { Activity, FileText, MousePointer2, Search, Calendar, RefreshCw, ChevronDown, AlertCircle } from 'lucide-react';
 
 function App() {
-    const { data, loading, error } = useMeetingData();
+    const { sheets, loading, error } = useMeetingData();
+    const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+
+    // データが読み込まれたら、最新のシート（通常は最初のシート）を選択状態にするなどのロジックを入れる場合はここ
+    // 今回はデフォルト0で、GAS側で新しい順に返すと仮定、あるいは後でソートする
 
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-background">
@@ -11,22 +16,58 @@ function App() {
         </div>
     );
 
+    // API URLが未設定の場合のエラー特別対応
+    if (error && error.includes('VITE_API_URL')) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-background p-8 text-center space-y-6">
+                <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mb-4">
+                    <AlertCircle className="w-8 h-8 text-yellow-500" />
+                </div>
+                <h1 className="text-2xl font-bold">セットアップが必要です</h1>
+                <p className="text-muted-foreground max-w-lg">
+                    スプレッドシートのデータを読み込むために、Google Apps Script (GAS) の連携設定が必要です。
+                </p>
+                <div className="bg-card p-6 rounded-lg text-left max-w-2xl w-full border border-border">
+                    <h3 className="font-bold mb-2">手順:</h3>
+                    <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+                        <li>Googleスプレッドシートを開き、拡張機能 &gt; Apps Script を選択</li>
+                        <li>提供されたスクリプトを貼り付けて保存</li>
+                        <li>「デプロイ」&gt;「新しいデプロイ」から「ウェブアプリ」を選択</li>
+                        <li>アクセス権限を「全員（Anyone）」に設定してデプロイ</li>
+                        <li>発行されたURLをコピー</li>
+                        <li>プロジェクトのルートに <code>.env</code> ファイルを作成し、以下のように記述してください：</li>
+                    </ol>
+                    <div className="mt-4 p-3 bg-black/30 rounded font-mono text-xs select-all">
+                        VITE_API_URL=https://script.google.com/macros/s/xxxxxxxxx/exec
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (error) return (
         <div className="min-h-screen flex items-center justify-center bg-background text-red-500">
             Error loading data: {error}
         </div>
     );
 
-    if (!data) return null;
+    if (!sheets || sheets.length === 0) return (
+        <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
+            No data available.
+        </div>
+    );
 
-    // Manual Parsing Logic based on the specific CSV structure viewed
+    const currentSheet = sheets[activeSheetIndex];
+    const data = currentSheet.data;
+
+    // Manual Parsing Logic (Updated for currentSheet)
     // Row 1 (Index 0): Date [0][0]
     // Row 11 (Index 10): "新記事", [10][1] is value
     // Row 12 (Index 11): "リライト", [11][1] is value
     // Row 15+ (Index 14+): Affiliate data
     // Row 21+ (Index 20+): Search Console data
 
-    const reportDate = data[0]?.[0] || 'Unknown Date';
+    const reportDate = data[0]?.[0] || currentSheet.sheetName; // Use sheet name if date cell is empty
     const newArticles = data[10]?.[1] || '0';
     const rewrites = data[11]?.[1] || '0';
     const siteOpenDate = data[6]?.[1] || '-';
@@ -35,25 +76,43 @@ function App() {
     const topQuery = data[21]?.[0] || '-';
     const topQueryClicks = data[21]?.[1] || '0';
 
-    // Calculate total clicks from Affiliate section approximately? 
-    // Just manually picking a few examples for the MVP.
-
     return (
         <div className="min-h-screen bg-background p-8 md:p-12 font-sans text-foreground selection:bg-primary/30">
             <div className="max-w-6xl mx-auto space-y-12">
 
                 {/* Header */}
-                <header className="space-y-4">
-                    <div className="flex items-center space-x-3">
-                        <div className="h-8 w-1 bg-gradient-to-b from-primary to-accent rounded-full"></div>
-                        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-                            朝活ブログ部 <span className="gradient-text">Monthly Report</span>
-                        </h1>
+                <header className="space-y-6 md:space-y-0 md:flex md:items-start md:justify-between">
+                    <div className="space-y-4">
+                        <div className="flex items-center space-x-3">
+                            <div className="h-8 w-1 bg-gradient-to-b from-primary to-accent rounded-full"></div>
+                            <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+                                朝活ブログ部 <span className="gradient-text">Monthly Report</span>
+                            </h1>
+                        </div>
+                        <p className="text-muted-foreground text-lg ml-4 flex items-center">
+                            <Calendar className="w-5 h-5 mr-2 text-primary" />
+                            {reportDate}
+                        </p>
                     </div>
-                    <p className="text-muted-foreground text-lg ml-4">
-                        <Calendar className="inline-block w-5 h-5 mr-2 -mt-1 text-primary" />
-                        {reportDate}
-                    </p>
+
+                    {/* Sheet Selector */}
+                    <div className="relative group">
+                        <div className="absolute inset-0 bg-gradient-to-r from-primary to-accent rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-200"></div>
+                        <div className="relative bg-card border border-white/10 rounded-lg p-1 flex items-center">
+                            <select
+                                className="bg-transparent text-foreground py-2 pl-4 pr-10 outline-none appearance-none cursor-pointer font-medium min-w-[160px]"
+                                value={activeSheetIndex}
+                                onChange={(e) => setActiveSheetIndex(Number(e.target.value))}
+                            >
+                                {sheets.map((sheet, idx) => (
+                                    <option key={idx} value={idx} className="bg-card text-foreground">
+                                        {sheet.sheetName}
+                                    </option>
+                                ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 w-4 h-4 text-muted-foreground pointer-events-none" />
+                        </div>
+                    </div>
                 </header>
 
                 {/* Key Metrics Grid */}
@@ -163,7 +222,7 @@ function App() {
 
                         <div className="glass-panel p-6 rounded-xl border-l-4 border-l-primary flex items-start">
                             <div className="text-sm text-muted-foreground italic">
-                                "次回の更新はスプレッドシートを更新後、CSVを配置するだけで反映されます。"
+                                "次回の更新はスプレッドシートの新しいシートを追加・更新するだけで反映されます。"
                             </div>
                         </div>
                     </div>
@@ -175,3 +234,4 @@ function App() {
 }
 
 export default App;
+
